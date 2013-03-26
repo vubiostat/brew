@@ -22,12 +22,6 @@ BRCODE <- 2
 BRCOMMENT <- 3
 BRCATCODE <- 4
 BRTEMPLATE <- 5
-DELIM <- list()
-DELIM[[BRTEXT]] <- c('','')
-DELIM[[BRCODE]] <- c('<%','%>')
-DELIM[[BRCOMMENT]] <- c('<%#','%>')
-DELIM[[BRCATCODE]] <- c('<%=','%>')
-DELIM[[BRTEMPLATE]] <- c('<%%','%%>')
 
 .bufLen <- 0
 .cache <- NULL
@@ -47,6 +41,29 @@ brewCache     <- function(envir=NULL) {
 }
 brewCacheOn  <- function() brewCache(new.env(hash=TRUE,parent=globalenv()))
 brewCacheOff <- function() brewCache(NULL)
+
+# Find a delimiter
+brewFindDelim <- function(line, delim, opening = TRUE) {
+	# Find the longest delimiter that matches the earliest
+	matches <- list()
+	match.pos <- structure(nchar(line) + 1L, match.length = -1L)
+	match.which <- 0
+
+	# Start at 2 because 1 (the text delimiter) is empty
+	for (i in 2:length(delim)) {
+		pattern <- if (opening) delim[[i]][1] else delim[[i]][2]
+		pos <- regexpr(pattern,line,fixed=TRUE)
+		if (pos > 0 && pos <= match.pos && attr(pos, 'match.length') >= attr(match.pos, 'match.length')) {
+			if (pos < match.pos || attr(pos, 'match.length') > attr(match.pos, 'match.length')) {
+				matches <- list()
+				match.pos <- pos
+				match.which <- i
+			}
+			matches[[length(matches) + 1]] <- list(which = i, pos = pos)
+		}
+	}
+	matches
+}
 
 `.brew.cached` <- function(output=stdout(),envir=parent.frame()){
 	# Only sink if caller passed an argument
@@ -80,7 +97,7 @@ brewCacheOff <- function() brewCache(NULL)
 }
 
 `brew` <-
-function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,parseCode=TRUE,tplParser=NULL,chdir=FALSE){
+function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,parseCode=TRUE,tplParser=NULL,chdir=FALSE,delim.code=c('<%','%>'),delim.comment=c('<%#','%>'),delim.catcode=c('<%=','%>'),delim.template=c('<%%','%%>')){
 
 	file.mtime <- canCache <- isFile <- closeIcon <- FALSE
 	filekey <- file # we modify file when chdir=TRUE, so keep same cache key
@@ -126,6 +143,20 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 		return(invisible(NULL))
 	}
 
+	# Error check delimiters
+	if (!is.character(delim.code) || length(delim.code) != 2) {
+		stop("delim.code must be a character vector of length 2")
+	}
+	if (!is.character(delim.comment) || length(delim.comment) != 2) {
+		stop("delim.comment must be a character vector of length 2")
+	}
+	if (!is.character(delim.catcode) || length(delim.catcode) != 2) {
+		stop("delim.catcode must be a character vector of length 2")
+	}
+	if (!is.character(delim.template) || length(delim.template) != 2) {
+		stop("delim.template must be a character vector of length 2")
+	}
+
 	# Can we use the cache
 	if (!is.null(.cache) && isFile && run && is.null(tplParser)){
 		canCache <- TRUE
@@ -147,6 +178,11 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 	# Not using cache, open input file if needed
 	if (isFile) icon <- file(file,open="rt")
 
+	delim <- list()
+	delim[[BRCODE]] <- delim.code
+	delim[[BRCOMMENT]] <- delim.comment
+	delim[[BRCATCODE]] <- delim.catcode
+	delim[[BRTEMPLATE]] <- delim.template
 	state <- BRTEXT
 	text <- code <- tpl <- character(.bufLen)
 	textLen <- codeLen <- as.integer(0)
@@ -156,41 +192,30 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 	while(TRUE){
 		if (!nchar(line)){
 			line <- readLines(icon,1)
-		   	if (length(line) != 1) break
+			if (length(line) != 1) break
 			line <- paste(line,"\n",sep='')
 		}
 		if (state == BRTEXT){
+			# Find opening delimiter
+			d <- brewFindDelim(line, delim, opening = TRUE)
 
-			spl <- strsplit(line,DELIM[[BRCODE]],fixed=TRUE)[[1]]
-
-			# Beginning markup found
-			if (length(spl) > 1){
-
-				if (nchar(spl[1])) {
-					text[textLen+1] <- spl[1]
+			if (length(d) > 0) {
+				# Beginning markup found
+				d <- d[[1]]
+				state <- d$which
+				if (d$pos > 1) {
+					text[textLen+1] <- substr(line, 1, d$pos - 1)
 					textLen <- textLen + 1
 				}
-				line <- paste(spl[-1],collapse='<%')
+				line <- substr(line, d$pos + attr(d$pos, 'match.length'), nchar(line))
 
-				# We know we've found this so far, so go ahead and set up state.
-				state <- BRCODE
-
-				# Now let's search for additional markup.
-				if (regexpr('^=',spl[2]) > 0){
-					state <- BRCATCODE
-					line <- sub('^=','',line)
-				} else if (regexpr('^#',spl[2]) > 0){
-					state <- BRCOMMENT
-				} else if (regexpr('^%',spl[2]) > 0){
+				if (state == BRTEMPLATE){
 					if (is.null(tplParser)){
-						text[textLen+1] <- '<%'
+						text[textLen+1] <- delim[[BRCODE]][1]
 						textLen <- textLen + 1
 					}
-					line <- sub('^%','',line)
-					state <- BRTEMPLATE
 					next
 				}
-
 				if (textStart <= textLen) {
 					code[codeLen+1] <- paste('.brew.cat(',textStart,',',textLen,')',sep='')
 					codeLen <- codeLen + 1
@@ -202,58 +227,16 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 				line <- ''
 			}
 		} else {
-			if (regexpr("%%>",line,perl=TRUE) > 0){
-				if (state != BRTEMPLATE)
-					stop("Oops! Someone forgot to close a tag. We saw: ",DELIM[[state]][1],' and we need ',DELIM[[state]][2])
-				spl <- strsplit(line,"%%>",fixed=TRUE)[[1]]
-				if (!is.null(tplParser)){
-					tpl[length(tpl)+1] <- spl[1]
-					# call template parser
-					tplBufList <- tplParser(tpl)
-					if (length(tplBufList)){
-						textBegin <- textLen + 1;
-						textEnd <- textBegin + length(tplBufList) - 1
-						textLen <- textEnd
-						text[textBegin:textEnd] <- tplBufList
-					}
-					tpl <- character()
-				} else {
-					text[textLen+1] <- paste(spl[1],'%>',sep='')
-					textLen <- textLen + 1
-				}
-				line <- paste(spl[-1],collapse='%%>')
-				state <- BRTEXT
-				next
-			}
-			if (regexpr("%>",line,perl=TRUE) > 0){
-				spl <- strsplit(line,"%>",fixed=TRUE)[[1]]
-				line <- paste(spl[-1],collapse='%>')
-
-				n <- nchar(spl[1])
-				# test  for '-' immediately preceding %> will strip trailing newline from line
-				if (n > 0) {
-					if (substr(spl[1],n,n) == '-') {
-						line <- substr(line,1,nchar(line)-1)
-						spl[1] <- substr(spl[1],1,n-1)
-					}
-					text[textLen+1] <- spl[1]
-					textLen <- textLen + 1
+			# Find closing delimiter
+			d <- brewFindDelim(line, delim, opening = FALSE)
+			if (length(d) == 0) {
+				# Didn't find a closing tag
+				# Complain if we see another opening tag
+				d2 <- brewFindDelim(line, delim, opening = TRUE)
+				if (length(d2) > 0) {
+					stop("Oops! Someone forgot to close a tag. We saw: ",delim[[state]][1],' and we need ',delim[[state]][2])
 				}
 
-				# We've found the end of a brew section, but we only care if the
-				# section is a BRCODE or BRCATCODE. We just implicitly drop BRCOMMENT sections
-				if (state == BRCODE){
-					code[codeLen+1] <- paste(text[textStart:textLen],collapse='')
-					codeLen <- codeLen + 1
-				} else if (state == BRCATCODE){
-					code[codeLen+1] <- paste('cat(',paste(text[textStart:textLen],collapse=''),')',sep='')
-					codeLen <- codeLen + 1
-				}
-				textStart <- textLen + 1
-				state <- BRTEXT
-			} else if (regexpr("<%",line,perl=TRUE) > 0){
-				stop("Oops! Someone forgot to close a tag. We saw: ",DELIM[[state]][1],' and we need ',DELIM[[state]][2])
-			} else {
 				if (state == BRTEMPLATE && !is.null(tplParser))
 					tpl[length(tpl)+1] <- line
 				else {
@@ -261,6 +244,68 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 					textLen <- textLen + 1
 				}
 				line <- ''
+			} else {
+				# brewFindDelim will return more than one match if there is more than
+				# one closing tag that are the same. We'll try to determine the
+				# correct closing tag to use before complaining.
+				tag.index <- 0
+				for (i in 1:length(d)) {
+					if (d[[i]]$which == state) {
+						tag.index <- i
+						break
+					}
+				}
+				if (tag.index == 0) {
+					# Wrong closing tag
+					stop("Oops! Someone forgot to close a tag. We saw: ",delim[[state]][1],' and we need ',delim[[state]][2])
+				}
+				d <- d[[tag.index]]
+				part1 <- substr(line, 0, d$pos - 1)
+				part2 <- substr(line, d$pos + attr(d$pos, 'match.length'), nchar(line))
+				if (state == BRTEMPLATE){
+					if (!is.null(tplParser)){
+						tpl[length(tpl)+1] <- part1
+						# call template parser
+						tplBufList <- tplParser(tpl)
+						if (length(tplBufList)){
+							textBegin <- textLen + 1;
+							textEnd <- textBegin + length(tplBufList) - 1
+							textLen <- textEnd
+							text[textBegin:textEnd] <- tplBufList
+						}
+						tpl <- character()
+					} else {
+						text[textLen+1] <- paste(part1,delim[[BRCODE]][2],sep='')
+						textLen <- textLen + 1
+					}
+					line <- part2
+					state <- BRTEXT
+					next
+				} else {
+					n <- nchar(part1)
+					# test  for '-' immediately preceding %> will strip trailing newline from line
+					if (n > 0) {
+						if (substr(part1,n,n) == '-') {
+							part2 <- substr(part2,1,nchar(part2)-1)
+							part1 <- substr(part1,1,n-1)
+						}
+						text[textLen+1] <- part1
+						textLen <- textLen + 1
+					}
+					line <- part2
+
+					# We've found the end of a brew section, but we only care if the
+					# section is a BRCODE or BRCATCODE. We just implicitly drop BRCOMMENT sections
+					if (state == BRCODE){
+						code[codeLen+1] <- paste(text[textStart:textLen],collapse='')
+						codeLen <- codeLen + 1
+					} else if (state == BRCATCODE){
+						code[codeLen+1] <- paste('cat(',paste(text[textStart:textLen],collapse=''),')',sep='')
+						codeLen <- codeLen + 1
+					}
+					textStart <- textLen + 1
+					state <- BRTEXT
+				}
 			}
 		}
 	}
@@ -271,7 +316,7 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 			textStart <- textLen + 1
 		}
 	} else {
-		stop("Oops! Someone forgot to close a tag. We saw: ",DELIM[[state]][1],' and we need ',DELIM[[state]][2])
+		stop("Oops! Someone forgot to close a tag. We saw: ",delim[[state]][1],' and we need ',delim[[state]][2])
 	}
 
 	if (closeIcon) close(icon)

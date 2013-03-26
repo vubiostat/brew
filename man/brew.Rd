@@ -7,7 +7,9 @@
 }
 \usage{
 brew(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),
-     run=TRUE,parseCode=TRUE,tplParser=NULL,chdir=FALSE)
+     run=TRUE,parseCode=TRUE,tplParser=NULL,chdir=FALSE,
+     delim.code=c('<\%','\%>'),delim.comment=c('<\%#','\%>'),
+     delim.catcode=c('<\%=','\%>'),delim.template=c('<\%\%','\%\%>'))
 }
 \arguments{
   \item{file}{A connection, or a character string naming the file
@@ -29,6 +31,10 @@ brew(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),
   \item{chdir}{logical; if \code{TRUE} and \code{file} is a pathname, the R working
           directory is temporarily changed to the directory containing
           \code{file} for evaluating. \code{brew} will also honor the global option \code{brew.chdir}.}
+  \item{delim.code}{Delimiters for executing code}
+  \item{delim.comment}{Delimiters for comments}
+  \item{delim.catcode}{Delimiters for executing code and printing the results}
+  \item{delim.template}{Delimiters for nested templating}
 }
 \details{
 	brew syntax is quite simple and there are very few delimiters to learn:
@@ -69,11 +75,12 @@ foo is still bar.
 --------------
 }
 
-	Also, for power users, there's one more thing:
+	Also, for power users, there are a couple more things:
 
 	\itemize{
 	\item{6.}{Text between the '<\%\%' and '\%\%>' delimiters is treated as a brew template and
       is printed as-is, but the delimiters are changed to '<\%' and '\%>'. This happens when tplParser=NULL. But if tplParser is a valid function, then the text is passed to tplParser which should return a character vector to replace the text.}
+	\item{7.}{You can customize the delimiters that brew uses by setting the delim arguments: \code{delim.code}, \code{delim.comment}, \code{delim.catcode}, and \code{delim.template.}}
 	}
 
 	NOTE: brew calls can be nested and rely on placing a function named '.brew.cat' in the environment in which it is passed. Each time brew is called, a check for the existence of this function is made. If it exists, then it is replaced with a new copy that is lexically scoped to the current brew frame. Once the brew call is done, the function is replaced with the previous function. The function is finally removed from the environment once all brew calls return.

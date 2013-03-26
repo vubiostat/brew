@@ -1,10 +1,12 @@
 Package: brew
 Type: Package
 Title: Templating Framework for Report Generation
-Version: 1.0-5
-Date: 2010-09-30
+Version: 1.0-6
+Date: 2011-04-13
 Author: Jeffrey Horner
 Maintainer: Jeffrey Horner <jeffrey.horner@gmail.com>
-Description: brew implements a templating framework for mixing text and R code for report generation. 
-	brew template syntax is similar to PHP, Ruby's erb module, Java Server Pages, and Python's psp module.
+Description: brew implements a templating framework for mixing text and
+        R code for report generation. brew template syntax is similar
+        to PHP, Ruby's erb module, Java Server Pages, and Python's psp
+        module.
 License: GPL-2

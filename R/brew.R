@@ -97,7 +97,7 @@ brewFindDelim <- function(line, delim, opening = TRUE) {
 }
 
 `brew` <-
-function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,parseCode=TRUE,tplParser=NULL,chdir=FALSE,delim.code=c('<%','%>'),delim.comment=c('<%#','%>'),delim.catcode=c('<%=','%>'),delim.template=c('<%%','%%>')){
+function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,parseCode=TRUE,tplParser=NULL,chdir=FALSE){
 
 	file.mtime <- canCache <- isFile <- closeIcon <- FALSE
 	filekey <- file # we modify file when chdir=TRUE, so keep same cache key
@@ -143,18 +143,45 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 		return(invisible(NULL))
 	}
 
-	# Error check delimiters
-	if (!is.character(delim.code) || length(delim.code) != 2) {
-		stop("delim.code must be a character vector of length 2")
+	# Error check custom delimiters
+	delim <- list()
+	if ("brew.delim" %in% names(options())) {
+		brew.delim <- getOption('brew.delim')
+		if (!is.list(brew.delim)) {
+			stop('brew.delim must be a list')
+		}
+		if (length(brew.delim) > 0) {
+			valid.keys <- c('code', 'comment', 'catcode', 'template')
+			all.keys <- names(brew.delim)
+			if (length(all.keys) == 0) {
+				all.keys <- 1:length(brew.delim)
+			}
+			bad.keys <- setdiff(all.keys, valid.keys)
+			if (length(bad.keys) > 0) {
+				warning("Unused elements in brew.delim: ", paste(bad.keys, collapse=", "))
+			}
+			keys <- intersect(valid.keys, all.keys)
+			for (key in keys) {
+				val <- brew.delim[[key]]
+				if (!is.character(val) || length(val) != 2) {
+					stop('the "', key, '" element in brew.delim must be a character vector of length 2')
+				}
+				index <- switch(key, code=BRCODE, comment=BRCOMMENT, catcode=BRCATCODE, template=BRTEMPLATE)
+				delim[[index]] <- val
+			}
+		}
 	}
-	if (!is.character(delim.comment) || length(delim.comment) != 2) {
-		stop("delim.comment must be a character vector of length 2")
+	if (length(delim) < BRCODE || is.null(delim[[BRCODE]])) {
+		delim[[BRCODE]] <- c('<%','%>')
 	}
-	if (!is.character(delim.catcode) || length(delim.catcode) != 2) {
-		stop("delim.catcode must be a character vector of length 2")
+	if (length(delim) < BRCOMMENT || is.null(delim[[BRCOMMENT]])) {
+		delim[[BRCOMMENT]] <- c('<%#','%>')
 	}
-	if (!is.character(delim.template) || length(delim.template) != 2) {
-		stop("delim.template must be a character vector of length 2")
+	if (length(delim) < BRCATCODE || is.null(delim[[BRCATCODE]])) {
+		delim[[BRCATCODE]] <- c('<%=','%>')
+	}
+	if (length(delim) < BRTEMPLATE || is.null(delim[[BRTEMPLATE]])) {
+		delim[[BRTEMPLATE]] <- c('<%%','%%>')
 	}
 
 	# Can we use the cache
@@ -178,11 +205,6 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 	# Not using cache, open input file if needed
 	if (isFile) icon <- file(file,open="rt")
 
-	delim <- list()
-	delim[[BRCODE]] <- delim.code
-	delim[[BRCOMMENT]] <- delim.comment
-	delim[[BRCATCODE]] <- delim.catcode
-	delim[[BRTEMPLATE]] <- delim.template
 	state <- BRTEXT
 	text <- code <- tpl <- character(.bufLen)
 	textLen <- codeLen <- as.integer(0)

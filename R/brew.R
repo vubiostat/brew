@@ -191,11 +191,10 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 			file.cache <- get(filekey,.cache)
 			file.mtime <- file.info(file)$mtime
 			if (file.cache$mtime >= file.mtime){
-				brew.cached <- .brew.cached
 				if (!missing(output)) {
-					return(brew.cached(output,envir))
+					return(.brew.cached(output,envir))
 				} else {
-					return(brew.cached(envir=envir))
+					return(.brew.cached(envir=envir))
 				}
 			}
 		}
@@ -347,7 +346,6 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 		brew.env <- new.env(parent=envir)
 		assign('text',text,brew.env)
 		assign('code',parse(text=code,srcfile=NULL),brew.env)
-		brew.cached <- .brew.cached
 
 		if (canCache){
 			if (file.mtime == FALSE) file.mtime <- file.info(file)$mtime
@@ -355,9 +353,9 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 		}
 
 		if (!missing(output)) {
-			return(brew.cached(output,brew.env))
+			return(.brew.cached(output,brew.env))
 		} else {
-			return(brew.cached(envir=brew.env))
+			return(.brew.cached(envir=brew.env))
 		}
 	} else if (parseCode){
 		brew.cached <- function (output=stdout(),parent.env=envir) {

@@ -73,7 +73,7 @@ brewFindDelim <- function(line, delim, opening = TRUE) {
 		sink(output)
 	}
 
-	text <- get('text')
+	text <- get('text',envir=envir)
 	brew.cat <- function(from,to) cat(text[from:to],sep='',collapse='')
 	.prev.brew.cat <- NULL
 	if (exists('.brew.cat',envir=envir)){
@@ -81,7 +81,7 @@ brewFindDelim <- function(line, delim, opening = TRUE) {
 	}
 	assign('.brew.cat',brew.cat, envir=envir)
 
-	code <- get('code')
+	code <- get('code',envir=envir)
 	ret <- try(eval(code,envir=envir))
 
 	# sink() will warn if trying to end the real stdout diversion
@@ -191,12 +191,10 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 			file.cache <- get(filekey,.cache)
 			file.mtime <- file.info(file)$mtime
 			if (file.cache$mtime >= file.mtime){
-				brew.cached <- .brew.cached
-				environment(brew.cached) <- file.cache$env
 				if (!missing(output)) {
-					return(brew.cached(output,envir))
+					return(.brew.cached(output,envir))
 				} else {
-					return(brew.cached(envir=envir))
+					return(.brew.cached(envir=envir))
 				}
 			}
 		}
@@ -345,11 +343,9 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 
 	if (run){
 
-		brew.env <- new.env(parent=globalenv())
+		brew.env <- new.env(parent=envir)
 		assign('text',text,brew.env)
 		assign('code',parse(text=code,srcfile=NULL),brew.env)
-		brew.cached <- .brew.cached
-		environment(brew.cached) <- brew.env
 
 		if (canCache){
 			if (file.mtime == FALSE) file.mtime <- file.info(file)$mtime
@@ -357,16 +353,17 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 		}
 
 		if (!missing(output)) {
-			return(brew.cached(output,envir))
+			return(.brew.cached(output,brew.env))
 		} else {
-			return(brew.cached(envir=envir))
+			return(.brew.cached(envir=brew.env))
 		}
 	} else if (parseCode){
-		brew.env <- new.env(parent=globalenv())
-		assign('text',text,brew.env)
-		assign('code',parse(text=code,srcfile=NULL),brew.env)
-		brew.cached <- .brew.cached
-		environment(brew.cached) <- brew.env
+		brew.cached <- function (output=stdout(),parent.env=envir) {
+			brew.env <- new.env(parent=envir)
+			assign('text',text,brew.env)
+			assign('code',parse(text=code,srcfile=NULL),brew.env)
+			.brew.cached(output,brew.env)
+		}
 		invisible(brew.cached)
 	} else {
 		invisible(list(text=text,code=code))

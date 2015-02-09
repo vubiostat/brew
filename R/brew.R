@@ -77,20 +77,21 @@ brewFindDelim <- function(line, delim, opening = TRUE) {
 	brew.cat <- function(from,to) cat(text[from:to],sep='',collapse='')
 	.prev.brew.cat <- NULL
 	if (exists('.brew.cat',envir=envir)){
-		.prev.brew.cat <- get('.brew.cat',pos=envir)
+		.prev.brew.cat <- get('.brew.cat',pos=parent.env(envir), inherits=FALSE)
 	}
-	assign('.brew.cat',brew.cat, envir=envir)
+	assign('.brew.cat',brew.cat, envir=parent.env(envir))
 
 	code <- get('code',envir=envir)
-	ret <- try(eval(code,envir=envir))
+    # `envir` is a brew helper environment whose parent is the calling context.
+	ret <- try(eval(code,envir=parent.env(envir)))
 
 	# sink() will warn if trying to end the real stdout diversion
 	if (sunk && unclass(output) != 1) sink()
 
 	if(!is.null(.prev.brew.cat)){
-		assign('.brew.cat',.prev.brew.cat,envir=envir)
+		assign('.brew.cat',.prev.brew.cat,envir=parent.env(envir))
 	} else {
-		rm('.brew.cat',envir=envir)
+		rm('.brew.cat',envir=parent.env(envir))
 	}
 
 	invisible(ret)
@@ -359,7 +360,7 @@ function(file=stdin(),output=stdout(),text=NULL,envir=parent.frame(),run=TRUE,pa
 		}
 	} else if (parseCode){
 		brew.cached <- function (output=stdout(),parent.env=envir) {
-			brew.env <- new.env(parent=envir)
+			brew.env <- new.env(parent=parent.env)
 			assign('text',text,brew.env)
 			assign('code',parse(text=code,srcfile=NULL),brew.env)
 			.brew.cached(output,brew.env)
